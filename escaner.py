@@ -6,31 +6,8 @@ import numpy as np
 import pandas as pd
 from flask import Flask
 
-# Servidor Flask para mantener activo el Web Service gratuito de Render
 app = Flask(__name__)
 
-# Control para evitar hilos duplicados
-scanner_started = False
-
-def start_scanner_once():
-    global scanner_started
-    if not scanner_started:
-        scanner_started = True
-        print("🚀 Iniciando Hilo del Escáner GodMode en Render...")
-        threading.Thread(target=run_scanner, daemon=True).start()
-
-@app.before_request
-def trigger_scanner_on_request():
-    start_scanner_once()
-
-@app.route('/')
-def home():
-    start_scanner_once()
-    return "🤖 Escáner GodMode activo 24/7 en Render"
-
-# ==========================================
-# CONFIGURACIÓN DE TELEGRAM Y BINANCE
-# ==========================================
 TELEGRAM_BOT_TOKEN = "8597480784:AAHXTurxutKMXTRMaQYpsPQaZERc0-ZDHGI"
 TELEGRAM_CHAT_ID = "8542123837"
 
@@ -42,7 +19,11 @@ SYMBOLS = [
 ]
 
 TIMEFRAME = "15m"
-MIN_WIN_PROB = 10.0  # <--- Mantener en 10.0 para probar el envío a Telegram. Luego cambiar a 75.0
+MIN_WIN_PROB = 10.0  # Umbral de prueba temporal
+
+@app.route('/')
+def home():
+    return "🤖 Escáner GodMode activo 24/7 en Render"
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -52,27 +33,26 @@ def send_telegram_alert(message):
         "parse_mode": "Markdown"
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        r = requests.post(url, json=payload, timeout=10)
+        print(f"[TELEGRAM] {r.status_code}")
     except Exception as e:
-        print(f"Error al enviar mensaje a Telegram: {e}")
+        print(f"Error en Telegram: {e}")
 
-def fetch_klines(symbol, interval="15m", limit=100):
+def fetch_klines(symbol, interval="15m", limit=60):
     url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}"
     try:
-        resp = requests.get(url, timeout=10)
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get(url, headers=headers, timeout=10)
         data = resp.json()
         df = pd.DataFrame(data, columns=[
             'timestamp', 'open', 'high', 'low', 'close', 'volume',
             'close_time', 'quote_vol', 'trades', 'tb_base_vol', 'tb_quote_vol', 'ignore'
         ])
-        df['open'] = df['open'].astype(float)
-        df['high'] = df['high'].astype(float)
-        df['low'] = df['low'].astype(float)
-        df['close'] = df['close'].astype(float)
-        df['volume'] = df['volume'].astype(float)
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = df[col].astype(float)
         return df
     except Exception as e:
-        print(f"Error al obtener datos de {symbol}: {e}")
+        print(f"Error Binance {symbol}: {e}")
         return None
 
 def calculate_crsi(close_prices):
@@ -98,13 +78,11 @@ def analyze_symbol(symbol):
     curr_high = high[-1]
     curr_low = low[-1]
 
-    # Z-Score de Volumen
     vol_mean = np.mean(volume[-20:])
     vol_std = np.std(volume[-20:])
     vol_zscore = (volume[-1] - vol_mean) / vol_std if vol_std > 0 else 0
     has_vol_spike = vol_zscore > 1.2
 
-    # CVD Sintético
     rng = curr_high - curr_low
     delta_frac = ((curr_close - curr_low) - (curr_high - curr_close)) / rng if rng > 0 else 0
     vol_delta = volume[-1] * delta_frac
@@ -171,15 +149,19 @@ def analyze_symbol(symbol):
         send_telegram_alert(msg)
 
 def run_scanner():
-    print("🤖 Escáner GodMode Activo. Rastreando Binance Futures...")
+    print("🤖 Iniciando escáner continuo...")
+    send_telegram_alert("✅ *Escáner GodMode Conectado y Operativo en Render*")
     while True:
         for symbol in SYMBOLS:
             analyze_symbol(symbol)
-            time.sleep(0.2)
-        print("✅ Ciclo de escaneo completado. Reevaluando en 15 minutos...")
+            time.sleep(0.3)
+        print("✅ Ciclo de escaneo completado.")
         time.sleep(900)
 
+# Inicializar automáticamente el hilo al cargar la aplicación
+t = threading.Thread(target=run_scanner, daemon=True)
+t.start()
+
 if __name__ == "__main__":
-    start_scanner_once()
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

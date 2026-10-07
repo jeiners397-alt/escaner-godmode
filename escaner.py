@@ -26,7 +26,7 @@ SYMBOLS = [
 ]
 
 TIMEFRAME = "15m"
-MIN_WIN_PROB = 75.0
+MIN_WIN_PROB = 10.0
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"

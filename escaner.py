@@ -1,13 +1,22 @@
 import time
+import threading
 import requests
 import numpy as np
 import pandas as pd
+from flask import Flask
+
+# Servidor Flask para mantener activo el Web Service gratuito en Render
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🤖 Escáner GodMode activo 24/7 en Render"
 
 # ==========================================
 # CONFIGURACIÓN DE TELEGRAM Y BINANCE
 # ==========================================
 TELEGRAM_BOT_TOKEN = "8597480784:AAHXTurxutKMXTRMaQYpsPQaZERc0-ZDHGI"
-TELEGRAM_CHAT_ID = "8542123837"  # <--- REEMPLAZA ESTO CON TU CHAT ID DE @userinfobot
+TELEGRAM_CHAT_ID = "8542123837"
 
 SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "ZECUSDT", "XRPUSDT", "BTWUSDT", 
@@ -17,7 +26,7 @@ SYMBOLS = [
 ]
 
 TIMEFRAME = "15m"
-MIN_WIN_PROB = 75.0  # Umbral de confluencia para enviar alerta
+MIN_WIN_PROB = 75.0
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -52,7 +61,6 @@ def fetch_klines(symbol, interval="15m", limit=100):
 
 def calculate_crsi(close_prices):
     rsi3 = pd.Series(close_prices).diff()
-    # Ponderación rápida equivalente al Connors RSI
     up = rsi3.clip(lower=0)
     down = -1 * rsi3.clip(upper=0)
     ma_up = up.rolling(3).mean()
@@ -74,29 +82,26 @@ def analyze_symbol(symbol):
     curr_high = high[-1]
     curr_low = low[-1]
 
-    # 1. Z-Score de Volumen
+    # Z-Score de Volumen
     vol_mean = np.mean(volume[-20:])
     vol_std = np.std(volume[-20:])
     vol_zscore = (volume[-1] - vol_mean) / vol_std if vol_std > 0 else 0
     has_vol_spike = vol_zscore > 1.2
 
-    # 2. Cumulative Volume Delta (CVD) Sintético
+    # CVD Sintético
     rng = curr_high - curr_low
     delta_frac = ((curr_close - curr_low) - (curr_high - curr_close)) / rng if rng > 0 else 0
     vol_delta = volume[-1] * delta_frac
     has_cvd_bull = vol_delta > 0 and has_vol_spike
     has_cvd_bear = vol_delta < 0 and has_vol_spike
 
-    # 3. ATR y Medias Móviles
     atr = np.mean(df['high'].values[-14:] - df['low'].values[-14:])
     ema20 = pd.Series(close).ewm(span=20).mean().iloc[-1]
     crsi_val = calculate_crsi(close)
 
-    # 4. Fair Value Gap (FVG)
     fvg_bull = (low[-1] > high[-3]) and has_vol_spike
     fvg_bear = (high[-1] < low[-3]) and has_vol_spike
 
-    # 5. Puntuación de Confluencia (Fast Engine)
     score_long = 0.0
     score_short = 0.0
 
@@ -126,7 +131,6 @@ def analyze_symbol(symbol):
     prob_long = min(max((score_long / 12.0) * 100.0, 5.0), 98.0)
     prob_short = min(max((score_short / 12.0) * 100.0, 5.0), 98.0)
 
-    # 6. Disparo de Alerta si supera la probabilidad mínima
     if prob_long >= MIN_WIN_PROB or prob_short >= MIN_WIN_PROB:
         action = "LONG 🚀" if prob_long > prob_short else "SHORT 🔻"
         win_prob = max(prob_long, prob_short)
@@ -151,13 +155,15 @@ def analyze_symbol(symbol):
         send_telegram_alert(msg)
 
 def run_scanner():
-    print("🤖 Escáner de Altcoins Iniciado. Rastreando 22 pares en Binance Futures...")
+    print("🤖 Escáner Iniciado...")
     while True:
         for symbol in SYMBOLS:
             analyze_symbol(symbol)
-            time.sleep(0.2)  # Pausa ligera para evitar saturar la API
-        print("✅ Ciclo de escaneo completado. Reevaluando en 15 minutos...")
-        time.sleep(900)  # Reevalúa cada 15 minutos (900 segundos)
+            time.sleep(0.2)
+        time.sleep(900)
+
+# Iniciar escáner en segundo plano
+threading.Thread(target=run_scanner, daemon=True).start()
 
 if __name__ == "__main__":
-    run_scanner()
+    app.run(host="0.0.0.0", port=10000)

@@ -1,3 +1,4 @@
+import os
 import time
 import threading
 import requests
@@ -5,7 +6,7 @@ import numpy as np
 import pandas as pd
 from flask import Flask
 
-# Servidor Flask para mantener activo el Web Service gratuito en Render
+# Servidor Flask para mantener activo el Web Service gratuito de Render
 app = Flask(__name__)
 
 @app.route('/')
@@ -26,7 +27,7 @@ SYMBOLS = [
 ]
 
 TIMEFRAME = "15m"
-MIN_WIN_PROB = 10.0
+MIN_WIN_PROB = 10.0  # <--- Mantenlo en 10.0 para hacer la prueba de fuego de inmediato. Una vez que te lleguen alertas a Telegram, edítalo y ponlo en 75.0
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -155,15 +156,17 @@ def analyze_symbol(symbol):
         send_telegram_alert(msg)
 
 def run_scanner():
-    print("🤖 Escáner Iniciado...")
+    print("🤖 Escáner GodMode Activo. Rastreando Binance Futures...")
     while True:
         for symbol in SYMBOLS:
             analyze_symbol(symbol)
             time.sleep(0.2)
+        print("✅ Ciclo de escaneo completado. Reevaluando en 15 minutos...")
         time.sleep(900)
 
-# Iniciar escáner en segundo plano
+# Inicia el escáner de Binance en segundo plano
 threading.Thread(target=run_scanner, daemon=True).start()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
